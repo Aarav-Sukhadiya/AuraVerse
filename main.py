@@ -69,7 +69,7 @@ def mime_to_category(mime: str, path: str) -> str:
 
     ext = Path(path).suffix.lower()
     if ext in (".json",): return "json"
-    if ext in (".txt", ".md", ".csv", ".log", ".py"): return "text"
+    if ext in (".txt", ".md", ".csv", ".log", ".py",".java",".cpp",".js",".c",".cs"): return "text"
     return "other"
 
 
