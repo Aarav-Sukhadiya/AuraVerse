@@ -12,7 +12,6 @@ def create_storage_folders():
     This prevents the app from crashing if the folders are missing.
     """
     folders_to_create = [
-<<<<<<< HEAD
         os.path.join(STORAGE_ROOT, "image"),
         os.path.join(STORAGE_ROOT, "video"),
         os.path.join(STORAGE_ROOT, "json"),
@@ -20,12 +19,6 @@ def create_storage_folders():
         os.path.join(STORAGE_ROOT, "audio"),
         os.path.join(STORAGE_ROOT, "pdf"),
         os.path.join(STORAGE_ROOT, "text")
-=======
-        os.path.join(STORAGE_ROOT, "images"),
-        os.path.join(STORAGE_ROOT, "videos"),
-        os.path.join(STORAGE_ROOT, "json"),
-        os.path.join(STORAGE_ROOT, "other")
->>>>>>> 4de8bbe2bd92ef6e081cbeb85d9efcc062e8e888
     ]
     try:
         # Ensure root exists first
