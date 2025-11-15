@@ -1,7 +1,11 @@
+# Search_UI.py  -- updated to add Download / Open buttons for search results
 import tkinter as tk
-from tkinter import messagebox, scrolledtext
+from tkinter import messagebox, scrolledtext, filedialog
 import os
+import shutil
 import JsonHandler
+import sys
+import subprocess
 
 DEFAULT_STORAGE_ROOT = "storage"
 
@@ -20,9 +24,6 @@ def create_storage_folders(storage_root=DEFAULT_STORAGE_ROOT):
     for p in folders_to_create:
         os.makedirs(p, exist_ok=True)
 
-
-
-# Replace the retrieve_data function in Search_UI.py with this code
 
 def retrieve_data(query, storage_root=DEFAULT_STORAGE_ROOT):
     """
@@ -76,7 +77,7 @@ def retrieve_data(query, storage_root=DEFAULT_STORAGE_ROOT):
 def build_gui(storage_root):
     root = tk.Tk()
     root.title("Storage Retrieval System")
-    root.geometry("800x520")
+    root.geometry("880x560")
 
     # Status bar
     log_frame = tk.Frame(root, pady=2)
@@ -102,8 +103,91 @@ def main(storage_root=DEFAULT_STORAGE_ROOT, back_callback=None):
     root, status, query_input, search_frame = build_gui(storage_root)
 
     # ---------------- RESULT DISPLAY ----------------
-    results_display = scrolledtext.ScrolledText(root, height=22, width=90, state=tk.DISABLED)
-    results_display.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+    # Left: textual details, Right: list of results + action buttons
+    container = tk.Frame(root)
+    container.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+
+    results_display = scrolledtext.ScrolledText(container, height=20, width=60, state=tk.DISABLED)
+    results_display.pack(side=tk.LEFT, fill="both", expand=True)
+
+    right_panel = tk.Frame(container, width=260)
+    right_panel.pack(side=tk.RIGHT, fill="y", padx=(10, 0))
+
+    tk.Label(right_panel, text="Results:", font=("Arial", 12)).pack(anchor="w")
+    results_listbox = tk.Listbox(right_panel, height=18, width=40)
+    results_listbox.pack(fill="y", expand=True, pady=(4, 6), side=tk.TOP)
+
+    # store last search results so listbox index maps to dict
+    current_results = []
+
+    # ---------------- ACTIONS ----------------
+    def show_selected_details(event=None):
+        sel = results_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        res = current_results[idx]
+        results_display.config(state=tk.NORMAL)
+        results_display.delete("1.0", tk.END)
+        results_display.insert(tk.END, f"Type: {res['type']}\n")
+        results_display.insert(tk.END, f"File: {res['source']}\n")
+        results_display.insert(tk.END, f"Path: {res['path']}\n\n")
+        # attempt to include a small text preview for text/json files
+        try:
+            preview = JsonHandler.extract_text_from_any_file(res['path']) or ""
+            if preview:
+                preview_snip = preview[:10_000]  # avoid giant dumps
+                results_display.insert(tk.END, "---- Preview ----\n")
+                results_display.insert(tk.END, preview_snip)
+                if len(preview) > len(preview_snip):
+                    results_display.insert(tk.END, "\n\n[...preview truncated...]")
+        except Exception:
+            pass
+        results_display.config(state=tk.DISABLED)
+
+    def download_selected():
+        sel = results_listbox.curselection()
+        if not sel:
+            messagebox.showinfo("No selection", "Please select a result to download.")
+            return
+        idx = sel[0]
+        res = current_results[idx]
+        src = res['path']
+        suggested_name = res['source']
+
+        dest = filedialog.asksaveasfilename(title="Save file as", initialfile=suggested_name)
+        if not dest:
+            return
+        try:
+            shutil.copy2(src, dest)
+            messagebox.showinfo("Downloaded", f"Saved to: {dest}")
+        except Exception as e:
+            messagebox.showerror("Download failed", f"Could not copy file:\n{e}")
+
+    def open_selected():
+        sel = results_listbox.curselection()
+        if not sel:
+            messagebox.showinfo("No selection", "Please select a result to open.")
+            return
+        idx = sel[0]
+        res = current_results[idx]
+        path = res['path']
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(path)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as e:
+            messagebox.showerror("Open failed", f"Could not open file:\n{e}")
+
+    # Buttons for actions
+    btn_frame = tk.Frame(right_panel)
+    btn_frame.pack(fill="x", pady=(6, 0))
+
+    tk.Button(btn_frame, text="Open", width=10, command=open_selected).pack(side=tk.LEFT, padx=(0, 6))
+    tk.Button(btn_frame, text="Download", width=10, command=download_selected).pack(side=tk.LEFT)
 
     # ---------------- SEARCH FUNCTION ----------------
     def perform_search():
@@ -115,6 +199,8 @@ def main(storage_root=DEFAULT_STORAGE_ROOT, back_callback=None):
 
         results_display.config(state=tk.NORMAL)
         results_display.delete("1.0", tk.END)
+        results_listbox.delete(0, tk.END)
+        current_results.clear()
 
         try:
             status.set(f"Searching for '{query}'...")
@@ -130,7 +216,12 @@ def main(storage_root=DEFAULT_STORAGE_ROOT, back_callback=None):
             status.set(f"Found {len(results)} result(s).")
             results_display.insert(tk.END, f"Found {len(results)} result(s):\n\n")
 
+            # populate listbox and current_results
             for i, res in enumerate(results):
+                label = f"[{res['type']}] {res['source']}"
+                results_listbox.insert(tk.END, label)
+                current_results.append(res)
+
                 results_display.insert(tk.END, f"--- {i+1} ---\n")
                 results_display.insert(tk.END, f"Type: {res['type']}\n")
                 results_display.insert(tk.END, f"File: {res['source']}\n")
@@ -142,7 +233,9 @@ def main(storage_root=DEFAULT_STORAGE_ROOT, back_callback=None):
         finally:
             results_display.config(state=tk.DISABLED)
 
+    # bind enter key to search
     query_input.bind("<Return>", lambda e: perform_search())
+    results_listbox.bind("<<ListboxSelect>>", show_selected_details)
 
     # ---------------- BUTTONS BESIDE SEARCH BAR ----------------
     tk.Button(

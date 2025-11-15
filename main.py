@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Main.py
+Updated: Adds JsonData button which shows all JSON files stored (preview + download/open).
 """
 
 import argparse
@@ -16,8 +17,11 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import re
+import sys
+import subprocess
+import json
 
-import Search_UI 
+import Search_UI
 import JsonHandler
 
 # ---------------- CONFIGURATION SECTION ----------------
@@ -56,11 +60,11 @@ def guess_mime(path: str):
 
 
 def mime_to_category(mime: str, path: str) -> str:
-    if mime.startswith("image/"): return "image"
-    if mime.startswith("video/"): return "video"
-    if mime.startswith("audio/"): return "audio"
+    if mime and mime.startswith("image/"): return "image"
+    if mime and mime.startswith("video/"): return "video"
+    if mime and mime.startswith("audio/"): return "audio"
     if mime == "application/json": return "json"
-    if mime.startswith("text/"): return "text"
+    if mime and mime.startswith("text/"): return "text"
     if mime == "application/pdf": return "pdf"
 
     ext = Path(path).suffix.lower()
@@ -146,8 +150,8 @@ def process_and_store_file(path: str, dry_run=False):
     json_meta = None
     if category == "json":
         data = JsonHandler.process_json_file(path)
-        if data["valid"]:
-            json_meta = data["metadata"]
+        if data.get("valid"):
+            json_meta = data.get("metadata", None)
 
     folder = CATEGORIES.get(category, CATEGORIES["other"])
     folder.mkdir(parents=True, exist_ok=True)
@@ -208,10 +212,13 @@ class AppUI:
         ttk.Button(top, text="Select File(s)", command=self.select_files).pack(side="left")
         ttk.Button(top, text="Open Storage Folder", command=self.open_storage).pack(side="left", padx=8)
         ttk.Button(top, text="View DB (last 50)", command=self.show_db).pack(side="left", padx=8)
+        ttk.Button(top, text="Show Database", command=self.show_database).pack(side="left", padx=8)
+        # NEW button for JSON data
+        ttk.Button(top, text="JsonData", command=self.show_json_data).pack(side="left", padx=8)
 
-        # ---- NEW BUTTON ----
+        # ---- Data Retrieval Button ----
         ttk.Button(top, text="Data Retrieval", command=self.open_search_ui).pack(side="left", padx=8)
-        # ----------------------
+        # ------------------------------
 
         self.progress = ttk.Label(main, text="Ready")
         self.progress.pack(fill="x", pady=(8, 6))
@@ -223,17 +230,14 @@ class AppUI:
             self.tree.column(c, width=220 if c == "stored" else 120)
         self.tree.pack(fill="both", expand=True)
 
-    # ------- NEW METHOD -------
+
     def open_search_ui(self):
         self.root.destroy()
         Search_UI.main(back_callback=self.restart_main_ui)
-    # --------------------------
 
-    # ------- RESTART MAIN -----
     def restart_main_ui(self):
         import main
         main.main()
-    # ---------------------------
 
     def select_files(self):
         paths = filedialog.askopenfilenames(title="Select files to ingest")
@@ -270,10 +274,10 @@ class AppUI:
             folder = str(STORAGE_ROOT)
             if os.name == "nt":
                 os.startfile(folder)
-            elif os.uname().sysname == "Darwin":
-                os.system(f"open {folder}")
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", folder])
             else:
-                os.system(f'xdg-open "{folder}"')
+                subprocess.Popen(["xdg-open", folder])
         except Exception as e:
             messagebox.showerror("Error", f"Cannot open folder: {e}")
 
@@ -292,6 +296,228 @@ class AppUI:
         for r in rows:
             txt.insert("end", str(r) + "\n")
         txt.config(state="disabled")
+
+    def show_database(self):
+        """
+        Show ALL rows from the files table in a new window.
+        """
+        try:
+            cur = DB_CONN.cursor()
+            cur.execute("SELECT * FROM files ORDER BY id DESC")
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description] if cur.description else []
+
+            win = tk.Toplevel(self.root)
+            win.title("Database - All Records")
+
+            # Text widget with horizontal + vertical scrollbars
+            frm = ttk.Frame(win)
+            frm.pack(fill="both", expand=True)
+
+            txt = tk.Text(frm, wrap="none")
+            vsb = ttk.Scrollbar(frm, orient="vertical", command=txt.yview)
+            hsb = ttk.Scrollbar(frm, orient="horizontal", command=txt.xview)
+            txt.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+            vsb.pack(side="right", fill="y")
+            hsb.pack(side="bottom", fill="x")
+            txt.pack(fill="both", expand=True, side="left")
+
+            # header
+            header = " | ".join(cols)
+            txt.insert("end", header + "\n")
+            txt.insert("end", "-" * max(len(header), 80) + "\n")
+
+            for r in rows:
+                txt.insert("end", str(r) + "\n")
+
+            txt.config(state="disabled")
+        except Exception as e:
+            messagebox.showerror("DB Error", f"Could not fetch database records:\n{e}")
+
+
+    def show_json_data(self):
+        """
+        Show all JSON-category rows and allow preview/open/download.
+        """
+        try:
+            cur = DB_CONN.cursor()
+            # Select rows marked as json by category OR by mime type
+            cur.execute("""
+                SELECT id, original_path, stored_path, mime, category, added_at
+                FROM files
+                WHERE category = 'json' OR mime = 'application/json'
+                ORDER BY id DESC
+            """)
+            rows = cur.fetchall()
+        except Exception as e:
+            messagebox.showerror("DB Error", f"Could not query database:\n{e}")
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("Json Data Browser")
+        win.geometry("1000x600")
+
+        left = ttk.Frame(win, width=320, padding=(6,6))
+        left.pack(side="left", fill="y")
+        right = ttk.Frame(win, padding=(6,6))
+        right.pack(side="right", fill="both", expand=True)
+
+        ttk.Label(left, text="JSON Records:", font=("Arial", 11)).pack(anchor="w")
+        listbox = tk.Listbox(left, width=50, height=30)
+        listbox.pack(fill="y", expand=True, pady=(6,6))
+
+        # Store mapping index -> row data
+        records = []
+        for r in rows:
+            rec = {
+                "id": r[0],
+                "original_path": r[1],
+                "stored_path": r[2],
+                "mime": r[3],
+                "category": r[4],
+                "added_at": r[5]
+            }
+            label = f"{rec['id']} | {Path(rec['original_path']).name}"
+            listbox.insert(tk.END, label)
+            records.append(rec)
+
+        # Right side: text preview
+        ttk.Label(right, text="Preview:", font=("Arial", 11)).pack(anchor="w")
+        txt = tk.Text(right, wrap="none")
+        vs = ttk.Scrollbar(right, orient="vertical", command=txt.yview)
+        hs = ttk.Scrollbar(right, orient="horizontal", command=txt.xview)
+        txt.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
+        vs.pack(side="right", fill="y")
+        hs.pack(side="bottom", fill="x")
+        txt.pack(fill="both", expand=True, side="left")
+
+        # Button frame
+        btnf = ttk.Frame(left)
+        btnf.pack(fill="x", pady=(6,0))
+        open_btn = ttk.Button(btnf, text="Open", width=12)
+        download_btn = ttk.Button(btnf, text="Download", width=12)
+        refresh_btn = ttk.Button(btnf, text="Refresh", width=12)
+        open_btn.pack(side="left", padx=(0,6))
+        download_btn.pack(side="left")
+        refresh_btn.pack(side="left", padx=(6,0))
+
+        def load_preview(idx):
+            txt.config(state="normal")
+            txt.delete("1.0", tk.END)
+            if idx < 0 or idx >= len(records):
+                txt.config(state="disabled")
+                return
+            rec = records[idx]
+            stored = rec.get("stored_path")
+            if not stored or not Path(stored).exists():
+                txt.insert("end", f"[Missing file on disk] Path: {stored}")
+                txt.config(state="disabled")
+                return
+            # Try to load & pretty-print JSON
+            try:
+                with open(stored, "r", encoding="utf-8") as f:
+                    raw = f.read()
+                try:
+                    parsed = json.loads(raw)
+                    pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
+                    txt.insert("end", pretty)
+                except Exception:
+                    # Not valid JSON; show raw text (or extracted text)
+                    # Try JsonHandler.extract_text_from_any_file as fallback
+                    try:
+                        extracted = JsonHandler.extract_text_from_any_file(stored) or raw
+                        txt.insert("end", extracted)
+                    except Exception:
+                        txt.insert("end", raw[:200000])  # guard large files
+            except Exception as e:
+                txt.insert("end", f"Error reading file: {e}")
+            txt.config(state="disabled")
+
+        def on_select(event=None):
+            sel = listbox.curselection()
+            if not sel:
+                return
+            idx = sel[0]
+            load_preview(idx)
+
+        def do_open():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showinfo("No selection", "Please select a record to open.")
+                return
+            rec = records[sel[0]]
+            path = rec.get("stored_path")
+            try:
+                if sys.platform.startswith("win"):
+                    os.startfile(path)
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", path])
+                else:
+                    subprocess.Popen(["xdg-open", path])
+            except Exception as e:
+                messagebox.showerror("Open failed", f"Could not open file:\n{e}")
+
+        def do_download():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showinfo("No selection", "Please select a record to download.")
+                return
+            rec = records[sel[0]]
+            src = rec.get("stored_path")
+            if not src or not Path(src).exists():
+                messagebox.showerror("Missing file", f"Stored file not found:\n{src}")
+                return
+            suggested = Path(rec.get("original_path") or src).name
+            dest = filedialog.asksaveasfilename(title="Save JSON as", initialfile=suggested)
+            if not dest:
+                return
+            try:
+                shutil.copy2(src, dest)
+                messagebox.showinfo("Downloaded", f"Saved to: {dest}")
+            except Exception as e:
+                messagebox.showerror("Download failed", f"Could not copy file:\n{e}")
+
+        def do_refresh():
+            # reload the list from DB
+            try:
+                cur = DB_CONN.cursor()
+                cur.execute("""
+                    SELECT id, original_path, stored_path, mime, category, added_at
+                    FROM files
+                    WHERE category = 'json' OR mime = 'application/json'
+                    ORDER BY id DESC
+                """)
+                newrows = cur.fetchall()
+                listbox.delete(0, tk.END)
+                records.clear()
+                for r in newrows:
+                    rec = {
+                        "id": r[0],
+                        "original_path": r[1],
+                        "stored_path": r[2],
+                        "mime": r[3],
+                        "category": r[4],
+                        "added_at": r[5]
+                    }
+                    label = f"{rec['id']} | {Path(rec['original_path']).name}"
+                    listbox.insert(tk.END, label)
+                    records.append(rec)
+                txt.config(state="normal")
+                txt.delete("1.0", tk.END)
+                txt.config(state="disabled")
+            except Exception as e:
+                messagebox.showerror("Refresh failed", f"Could not refresh:\n{e}")
+
+        listbox.bind("<<ListboxSelect>>", on_select)
+        open_btn.config(command=do_open)
+        download_btn.config(command=do_download)
+        refresh_btn.config(command=do_refresh)
+
+        # If there are results, select the first to show preview immediately
+        if records:
+            listbox.selection_set(0)
+            load_preview(0)
 
 
 def main():
