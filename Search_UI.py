@@ -1,4 +1,4 @@
-# Search_UI.py  -- updated to add Download / Open buttons for search results
+# Search_UI.py  -- updated: display filenames without leading timestamp prefix
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, filedialog
 import os
@@ -6,6 +6,7 @@ import shutil
 import JsonHandler
 import sys
 import subprocess
+import re
 
 DEFAULT_STORAGE_ROOT = "storage"
 
@@ -23,6 +24,14 @@ def create_storage_folders(storage_root=DEFAULT_STORAGE_ROOT):
     os.makedirs(storage_root, exist_ok=True)
     for p in folders_to_create:
         os.makedirs(p, exist_ok=True)
+
+
+def strip_leading_timestamp(name: str) -> str:
+    """
+    Remove leading numeric timestamp + underscore like: 1731650134512_filename.ext -> filename.ext
+    If it doesn't match, return name unchanged.
+    """
+    return re.sub(r'^\d+_', '', name)
 
 
 def retrieve_data(query, storage_root=DEFAULT_STORAGE_ROOT):
@@ -67,7 +76,8 @@ def retrieve_data(query, storage_root=DEFAULT_STORAGE_ROOT):
             if matches_name or matches_text:
                 results.append({
                     "type": file_type,
-                    "source": filename,
+                    "source": filename,      # stored filename (with timestamp prefix)
+                    "display": strip_leading_timestamp(filename),  # cleaned display name
                     "path": full_path
                 })
 
@@ -129,8 +139,10 @@ def main(storage_root=DEFAULT_STORAGE_ROOT, back_callback=None):
         res = current_results[idx]
         results_display.config(state=tk.NORMAL)
         results_display.delete("1.0", tk.END)
+        # use cleaned display name for the file name shown to user
         results_display.insert(tk.END, f"Type: {res['type']}\n")
-        results_display.insert(tk.END, f"File: {res['source']}\n")
+        results_display.insert(tk.END, f"File: {res['display']}\n")
+        results_display.insert(tk.END, f"Stored filename: {res['source']}\n")
         results_display.insert(tk.END, f"Path: {res['path']}\n\n")
         # attempt to include a small text preview for text/json files
         try:
@@ -153,7 +165,8 @@ def main(storage_root=DEFAULT_STORAGE_ROOT, back_callback=None):
         idx = sel[0]
         res = current_results[idx]
         src = res['path']
-        suggested_name = res['source']
+        # suggest the cleaned filename (without timestamp)
+        suggested_name = res.get("display") or res.get("source")
 
         dest = filedialog.asksaveasfilename(title="Save file as", initialfile=suggested_name)
         if not dest:
@@ -218,13 +231,14 @@ def main(storage_root=DEFAULT_STORAGE_ROOT, back_callback=None):
 
             # populate listbox and current_results
             for i, res in enumerate(results):
-                label = f"[{res['type']}] {res['source']}"
+                # show cleaned display name in the listbox
+                label = f"[{res['type']}] {res['display']}"
                 results_listbox.insert(tk.END, label)
                 current_results.append(res)
 
                 results_display.insert(tk.END, f"--- {i+1} ---\n")
                 results_display.insert(tk.END, f"Type: {res['type']}\n")
-                results_display.insert(tk.END, f"File: {res['source']}\n")
+                results_display.insert(tk.END, f"File: {res['display']}\n")
                 results_display.insert(tk.END, f"Path: {res['path']}\n\n")
 
         except Exception as e:
