@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=AuraVerse
+Comment=AI-Powered Intelligent Multi-Modal File Storage System
+Exec=/media/aarav-sukhadiya/Program_Data/Programming/Python_Programs/AuraVerse/AuraVerse/run_auraverse.sh
+Icon=/media/aarav-sukhadiya/Program_Data/Programming/Python_Programs/AuraVerse/AuraVerse/Icon.png
+Terminal=false
+Type=Application
+Categories=Utility;System;AI;

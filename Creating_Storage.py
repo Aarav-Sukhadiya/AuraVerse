@@ -22,7 +22,9 @@ def setup_user_storage(username: str):
     """
 
     # Base paths
-    base = Path.cwd()
+    # Always use the directory containing Creating_Storage.py
+    base = Path(__file__).resolve().parent
+
     storage_root = base / f"{username}_folder"
     db_path = base / f"{username}_database.sqllite"
 

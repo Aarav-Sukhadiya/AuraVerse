@@ -20,7 +20,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import main
 
-DB_FILENAME = "auth_db.sqllite"
+# Always store auth DB next to auth_ui.py, no matter where program is launched from
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILENAME = os.path.join(BASE_DIR, "auth_db.sqllite")
+
 
 # PBKDF2 parameters
 _HASH_NAME = "sha256"
