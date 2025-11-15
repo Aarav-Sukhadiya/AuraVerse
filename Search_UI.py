@@ -139,9 +139,9 @@ def retrieve_data(query: str, storage_root: str, db_path: str):
 
 
 # ---------------- GUI (restored layout) ----------------
-def build_gui(storage_root: str, db_path: str):
+def build_gui(storage_root: str, db_path: str, username: str):
     root = tk.Tk()
-    root.title(f"Storage Retrieval — {os.path.basename(storage_root)}")
+    root.title(f"Storage Retrieval — {username}")
     root.geometry("920x585")
 
     # Top search area (old style)
@@ -365,7 +365,7 @@ def main(storage_root: str = None, db_path: str = None, username: str = "admin")
 
     create_storage_folders(storage_root)
 
-    root, query_input, status_var, results_listbox, current_results = build_gui(storage_root, db_path)
+    root, query_input, status_var, results_listbox, current_results = build_gui(storage_root, db_path, username)
 
     status_var.set("Ready.")
     root.mainloop()

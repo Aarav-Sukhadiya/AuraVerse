@@ -163,6 +163,19 @@ class AuthUI:
         ttk.Label(ufrm, text="Username:", width=12).pack(side="left")
         self.username_var = tk.StringVar()
         ttk.Entry(ufrm, textvariable=self.username_var, width=34).pack(side="left", padx=(4, 0))
+        # update window title live when the username field changes
+        def _update_title(*_args):
+            try:
+                name = self.username_var.get().strip()
+            except Exception:
+                name = ""
+            self.master.title(f"Login — {name}" if name else "Login")
+
+        # attach the trace; the callback receives (varname, index, mode) so use *_args
+        self.username_var.trace_add("write", _update_title)
+
+        # call once to set initial title
+        _update_title()
 
         # Password
         pfrm = ttk.Frame(self.frame)

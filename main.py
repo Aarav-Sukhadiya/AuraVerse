@@ -15,12 +15,12 @@ import mimetypes
 from pathlib import Path
 from datetime import datetime
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox,scrolledtext
 import re
 import sys
 import subprocess
 import json
-
+import tempfile
 import Search_UI
 import JsonHandler
 
@@ -217,10 +217,11 @@ def process_and_store_file(path: str, dry_run=False):
 # ---------- TKINTER UI ----------
 
 class AppUI:
-    def __init__(self, root, dry_run=False):
+    def __init__(self, root, storage_root, db_path, username="admin", dry_run=False):
         self.root = root
         self.dry_run = dry_run
-        root.title("MIME-only Store")
+        self.username = username
+        root.title(f"Add Files — {username}" )
 
         main = ttk.Frame(root, padding=12)
         main.pack(fill="both", expand=True)
@@ -248,6 +249,19 @@ class AppUI:
             self.tree.heading(c, text=h)
             self.tree.column(c, width=220 if c == "stored" else 120)
         self.tree.pack(fill="both", expand=True)
+
+                # ---------------- JSON input area (paste/type JSON here) ----------------
+        lower = ttk.Frame(main, padding=(0, 8))
+        lower.pack(fill="both", expand=False, pady=(8, 0))
+
+        ttk.Label(lower, text="Paste JSON here:", font=("Arial", 10)).pack(anchor="w")
+        self.json_text = scrolledtext.ScrolledText(lower, height=10, wrap="none")
+        self.json_text.pack(fill="both", expand=True, pady=(4, 6))
+
+        btn_row2 = ttk.Frame(lower)
+        btn_row2.pack(fill="x")
+        ttk.Button(btn_row2, text="Submit JSON", command=self.submit_json_text).pack(side="left")
+        # ------------------------------------------------------------------------
 
 
     def open_search_ui(self):
@@ -299,6 +313,113 @@ class AppUI:
                 subprocess.Popen(["xdg-open", folder])
         except Exception as e:
             messagebox.showerror("Error", f"Cannot open folder: {e}")
+    
+    def submit_json_text(self):
+        """
+        Get JSON from the json_text scrolled text widget, validate it, write to a temp file,
+        and call the existing process_and_store_file pipeline. Works with either the
+        old process_and_store_file(path, dry_run=...) signature or the newer
+        process_and_store_file(path, storage_root, db_path, dry_run=...).
+        """
+        txt = ""
+        try:
+            txt = self.json_text.get("1.0", "end").strip()
+        except Exception:
+            messagebox.showwarning("Error", "Cannot read JSON text area.")
+            return
+
+        if not txt:
+            messagebox.showwarning("Empty", "Please paste JSON into the text area before submitting.")
+            return
+
+        # validate JSON
+        try:
+            _ = json.loads(txt)
+        except Exception as e:
+            messagebox.showerror("Invalid JSON", f"JSON parse error:\n{e}")
+            return
+
+        # write to temporary file
+        try:
+            tf = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", encoding="utf-8")
+            tf.write(txt)
+            tmp_path = tf.name
+            tf.close()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not create temporary file:\n{e}")
+            return
+
+        # Now call process_and_store_file. Try multiple signatures for compatibility.
+        res = None
+        try:
+            # Try the simple signature first (path, dry_run=...)
+            res = process_and_store_file(tmp_path, dry_run=getattr(self, "dry_run", False))
+        except TypeError:
+            # try the newer signature that requires storage_root and db_path
+            try:
+                # try to get attributes from self (if AppUI was constructed with storage_root/db_path)
+                storage_root = getattr(self, "storage_root", None)
+                db_path = getattr(self, "db_path", None)
+
+                # if missing, try to resolve via Creating_Storage using default USERNAME if available
+                if storage_root is None or db_path is None:
+                    try:
+                        import Creating_Storage
+                        # attempt to use a USERNAME defined in module scope if present, else 'admin'
+                        username = getattr(Creating_Storage, "USERNAME", None) or "admin"
+                        storage_root, db_path = Creating_Storage.setup_user_storage(username)
+                    except Exception:
+                        # fallback to look for global STORAGE_ROOT/DB_PATH variables
+                        storage_root = globals().get("STORAGE_ROOT", storage_root)
+                        db_path = globals().get("DB_PATH", db_path)
+
+                # ensure strings
+                storage_root = str(storage_root) if storage_root is not None else None
+                db_path = str(db_path) if db_path is not None else None
+
+                # call the function with storage and db if available
+                if storage_root and db_path:
+                    res = process_and_store_file(tmp_path, storage_root, db_path, dry_run=getattr(self, "dry_run", False))
+                else:
+                    # last resort: call simple signature (may raise again)
+                    res = process_and_store_file(tmp_path, dry_run=getattr(self, "dry_run", False))
+            except Exception as e2:
+                # capture error
+                res = {"status": "error", "reason": f"{e2}"}
+        except Exception as e:
+            res = {"status": "error", "reason": f"{e}"}
+
+        # remove the temporary source file (we no longer need it; stored copy is inside storage if successful)
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+        # Handle result
+        if isinstance(res, dict) and res.get("status") == "copied":
+            stored = res.get("stored_path", "")
+            messagebox.showinfo("Saved", f"JSON stored: {stored}")
+            # insert into treeview for visual feedback
+            try:
+                self.tree.insert("", "end", values=(
+                    res.get("original") or "", res.get("mime") or "", res.get("category") or "",
+                    res.get("stored_path") or "", res.get("status") or "copied"
+                ))
+            except Exception:
+                pass
+            # clear the text area
+            try:
+                self.json_text.delete("1.0", "end")
+            except Exception:
+                pass
+        else:
+            reason = ""
+            if isinstance(res, dict):
+                reason = res.get("reason") or res.get("error") or str(res)
+            else:
+                reason = str(res)
+            messagebox.showerror("Store failed", f"Could not save JSON:\n{reason}")
+
 
     def show_db(self):
         cur = DB_CONN.cursor()
@@ -601,12 +722,20 @@ class AppUI:
 
 
 def main(username = "admin"):
+    # resolve per-user storage + db
+    from Creating_Storage import setup_user_storage
+    storage_root, db_path = setup_user_storage(username)
+    storage_root = str(storage_root)
+    db_path = str(db_path)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     root = tk.Tk()
-    app = AppUI(root, dry_run=args.dry_run)
+    root.title(f"AuraVerse — {username}")
+    app = AppUI(root, storage_root=storage_root, db_path=db_path)
+
     root.geometry("1100x700")
     root.mainloop()
 
