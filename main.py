@@ -337,14 +337,14 @@ class AppUI:
 
 
     def show_json_data(self):
+        """Show all JSON-category rows in a tabular Treeview and allow preview/open/download/export.
         """
-        Show all JSON-category rows and allow preview/open/download.
-        """
+        
+        
         try:
             cur = DB_CONN.cursor()
-            # Select rows marked as json by category OR by mime type
             cur.execute("""
-                SELECT id, original_path, stored_path, mime, category, added_at
+                SELECT id, original_path, stored_path, mime, category, json_keys, added_at
                 FROM files
                 WHERE category = 'json' OR mime = 'application/json'
                 ORDER BY id DESC
@@ -355,20 +355,42 @@ class AppUI:
             return
 
         win = tk.Toplevel(self.root)
-        win.title("Json Data Browser")
-        win.geometry("1000x600")
+        win.title("Json Data (Table)")
+        win.geometry("1200x700")
 
-        left = ttk.Frame(win, width=320, padding=(6,6))
-        left.pack(side="left", fill="y")
+        # Left: table, Right: preview
+        left = ttk.Frame(win, padding=(6,6))
+        left.pack(side="left", fill="both", expand=True)
         right = ttk.Frame(win, padding=(6,6))
         right.pack(side="right", fill="both", expand=True)
 
-        ttk.Label(left, text="JSON Records:", font=("Arial", 11)).pack(anchor="w")
-        listbox = tk.Listbox(left, width=50, height=30)
-        listbox.pack(fill="y", expand=True, pady=(6,6))
+        # Top of left: action buttons
+        btn_row = ttk.Frame(left)
+        btn_row.pack(fill="x", pady=(0,6))
+        refresh_btn = ttk.Button(btn_row, text="Refresh", width=12)
+        open_btn = ttk.Button(btn_row, text="Open", width=12)
+        download_btn = ttk.Button(btn_row, text="Download", width=12)
+        export_btn = ttk.Button(btn_row, text="Export CSV", width=12)
+        refresh_btn.pack(side="left", padx=(0,6))
+        open_btn.pack(side="left", padx=(0,6))
+        download_btn.pack(side="left", padx=(0,6))
+        export_btn.pack(side="left", padx=(6,0))
 
-        # Store mapping index -> row data
-        records = []
+        # Treeview with scrollbar
+        cols = ("id", "original_path", "stored_path", "mime", "category", "json_keys", "added_at")
+        tree = ttk.Treeview(left, columns=cols, show="headings", selectmode="browse")
+        for c in cols:
+            tree.heading(c, text=c, anchor="w")
+            tree.column(c, width=160 if c != "original_path" and c != "stored_path" else 300, anchor="w")
+        vs = ttk.Scrollbar(left, orient="vertical", command=tree.yview)
+        hs = ttk.Scrollbar(left, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
+        tree.pack(fill="both", expand=True, side="left")
+        vs.pack(side="right", fill="y")
+        hs.pack(side="bottom", fill="x")
+
+        # populate rows
+        records = []  # keep a list of dicts for actions
         for r in rows:
             rec = {
                 "id": r[0],
@@ -376,78 +398,87 @@ class AppUI:
                 "stored_path": r[2],
                 "mime": r[3],
                 "category": r[4],
-                "added_at": r[5]
+                "json_keys": r[5] if len(r) > 5 else "",
+                "added_at": r[6] if len(r) > 6 else ""
             }
-            label = f"{rec['id']} | {Path(rec['original_path']).name}"
-            listbox.insert(tk.END, label)
             records.append(rec)
+            tree.insert("", "end", values=(
+                rec["id"], Path(rec["original_path"]).name, rec["stored_path"], rec["mime"],
+                rec["category"], rec["json_keys"], rec["added_at"]
+            ))
 
-        # Right side: text preview
+        # Right: Preview text with scrollbars
         ttk.Label(right, text="Preview:", font=("Arial", 11)).pack(anchor="w")
-        txt = tk.Text(right, wrap="none")
-        vs = ttk.Scrollbar(right, orient="vertical", command=txt.yview)
-        hs = ttk.Scrollbar(right, orient="horizontal", command=txt.xview)
-        txt.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
-        vs.pack(side="right", fill="y")
-        hs.pack(side="bottom", fill="x")
-        txt.pack(fill="both", expand=True, side="left")
+        preview_txt = tk.Text(right, wrap="none")
+        pv_v = ttk.Scrollbar(right, orient="vertical", command=preview_txt.yview)
+        pv_h = ttk.Scrollbar(right, orient="horizontal", command=preview_txt.xview)
+        preview_txt.configure(yscrollcommand=pv_v.set, xscrollcommand=pv_h.set)
+        pv_v.pack(side="right", fill="y")
+        pv_h.pack(side="bottom", fill="x")
+        preview_txt.pack(fill="both", expand=True, side="left")
 
-        # Button frame
-        btnf = ttk.Frame(left)
-        btnf.pack(fill="x", pady=(6,0))
-        open_btn = ttk.Button(btnf, text="Open", width=12)
-        download_btn = ttk.Button(btnf, text="Download", width=12)
-        refresh_btn = ttk.Button(btnf, text="Refresh", width=12)
-        open_btn.pack(side="left", padx=(0,6))
-        download_btn.pack(side="left")
-        refresh_btn.pack(side="left", padx=(6,0))
+        # Helper functions
+        def get_selected_index():
+            sel = tree.selection()
+            if not sel:
+                return None
+            iid = sel[0]
+            vals = tree.item(iid, "values")
+            # values layout: id, original_name, stored_path, mime, category, json_keys, added_at
+            # find record by id
+            try:
+                rid = int(vals[0])
+            except Exception:
+                return None
+            for i, rec in enumerate(records):
+                if rec["id"] == rid:
+                    return i
+            return None
 
-        def load_preview(idx):
-            txt.config(state="normal")
-            txt.delete("1.0", tk.END)
-            if idx < 0 or idx >= len(records):
-                txt.config(state="disabled")
+        def load_preview_by_index(idx):
+            preview_txt.config(state="normal")
+            preview_txt.delete("1.0", tk.END)
+            if idx is None or idx < 0 or idx >= len(records):
+                preview_txt.config(state="disabled")
                 return
             rec = records[idx]
             stored = rec.get("stored_path")
             if not stored or not Path(stored).exists():
-                txt.insert("end", f"[Missing file on disk] Path: {stored}")
-                txt.config(state="disabled")
+                preview_txt.insert("end", f"[Missing file on disk] Path: {stored}")
+                preview_txt.config(state="disabled")
                 return
-            # Try to load & pretty-print JSON
+            # Try to read and pretty-print JSON
             try:
                 with open(stored, "r", encoding="utf-8") as f:
                     raw = f.read()
                 try:
                     parsed = json.loads(raw)
                     pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
-                    txt.insert("end", pretty)
+                    preview_txt.insert("end", pretty)
                 except Exception:
-                    # Not valid JSON; show raw text (or extracted text)
-                    # Try JsonHandler.extract_text_from_any_file as fallback
+                    # fallback to JsonHandler.extract_text or raw
                     try:
                         extracted = JsonHandler.extract_text_from_any_file(stored) or raw
-                        txt.insert("end", extracted)
+                        preview_txt.insert("end", extracted)
                     except Exception:
-                        txt.insert("end", raw[:200000])  # guard large files
+                        preview_txt.insert("end", raw[:200000])
             except Exception as e:
-                txt.insert("end", f"Error reading file: {e}")
-            txt.config(state="disabled")
+                preview_txt.insert("end", f"Error reading file: {e}")
+            preview_txt.config(state="disabled")
 
-        def on_select(event=None):
-            sel = listbox.curselection()
-            if not sel:
-                return
-            idx = sel[0]
-            load_preview(idx)
+        def on_tree_select(event=None):
+            idx = get_selected_index()
+            load_preview_by_index(idx)
 
         def do_open():
-            sel = listbox.curselection()
-            if not sel:
+            idx = get_selected_index()
+            if idx is None:
                 messagebox.showinfo("No selection", "Please select a record to open.")
                 return
-            rec = records[sel[0]]
-            path = rec.get("stored_path")
+            path = records[idx].get("stored_path")
+            if not path or not Path(path).exists():
+                messagebox.showerror("Missing file", f"File not found:\n{path}")
+                return
             try:
                 if sys.platform.startswith("win"):
                     os.startfile(path)
@@ -459,16 +490,15 @@ class AppUI:
                 messagebox.showerror("Open failed", f"Could not open file:\n{e}")
 
         def do_download():
-            sel = listbox.curselection()
-            if not sel:
+            idx = get_selected_index()
+            if idx is None:
                 messagebox.showinfo("No selection", "Please select a record to download.")
                 return
-            rec = records[sel[0]]
-            src = rec.get("stored_path")
+            src = records[idx].get("stored_path")
             if not src or not Path(src).exists():
                 messagebox.showerror("Missing file", f"Stored file not found:\n{src}")
                 return
-            suggested = Path(rec.get("original_path") or src).name
+            suggested = Path(records[idx].get("original_path") or src).name
             dest = filedialog.asksaveasfilename(title="Save JSON as", initialfile=suggested)
             if not dest:
                 return
@@ -479,45 +509,76 @@ class AppUI:
                 messagebox.showerror("Download failed", f"Could not copy file:\n{e}")
 
         def do_refresh():
-            # reload the list from DB
+            # reload data from DB and repopulate the tree & records
             try:
                 cur = DB_CONN.cursor()
                 cur.execute("""
-                    SELECT id, original_path, stored_path, mime, category, added_at
+                    SELECT id, original_path, stored_path, mime, category, json_keys, added_at
                     FROM files
                     WHERE category = 'json' OR mime = 'application/json'
                     ORDER BY id DESC
                 """)
                 newrows = cur.fetchall()
-                listbox.delete(0, tk.END)
-                records.clear()
-                for r in newrows:
-                    rec = {
-                        "id": r[0],
-                        "original_path": r[1],
-                        "stored_path": r[2],
-                        "mime": r[3],
-                        "category": r[4],
-                        "added_at": r[5]
-                    }
-                    label = f"{rec['id']} | {Path(rec['original_path']).name}"
-                    listbox.insert(tk.END, label)
-                    records.append(rec)
-                txt.config(state="normal")
-                txt.delete("1.0", tk.END)
-                txt.config(state="disabled")
             except Exception as e:
-                messagebox.showerror("Refresh failed", f"Could not refresh:\n{e}")
+                messagebox.showerror("DB Error", f"Could not refresh:\n{e}")
+                return
+            # clear
+            for iid in tree.get_children():
+                tree.delete(iid)
+            records.clear()
+            for r in newrows:
+                rec = {
+                    "id": r[0],
+                    "original_path": r[1],
+                    "stored_path": r[2],
+                    "mime": r[3],
+                    "category": r[4],
+                    "json_keys": r[5] if len(r) > 5 else "",
+                    "added_at": r[6] if len(r) > 6 else ""
+                }
+                records.append(rec)
+                tree.insert("", "end", values=(
+                    rec["id"], Path(rec["original_path"]).name, rec["stored_path"], rec["mime"],
+                    rec["category"], rec["json_keys"], rec["added_at"]
+                ))
+            preview_txt.config(state="normal")
+            preview_txt.delete("1.0", tk.END)
+            preview_txt.config(state="disabled")
 
-        listbox.bind("<<ListboxSelect>>", on_select)
+        def do_export_csv():
+            if not records:
+                messagebox.showinfo("No data", "No JSON records to export.")
+                return
+            dest = filedialog.asksaveasfilename(title="Export CSV", defaultextension=".csv", filetypes=[("CSV","*.csv")])
+            if not dest:
+                return
+            try:
+                import csv
+                with open(dest, "w", newline="", encoding="utf-8") as cf:
+                    writer = csv.writer(cf)
+                    writer.writerow(cols)
+                    for rec in records:
+                        writer.writerow([rec.get(c, "") for c in cols])
+                messagebox.showinfo("Exported", f"CSV exported to: {dest}")
+            except Exception as e:
+                messagebox.showerror("Export failed", f"Could not export CSV:\n{e}")
+
+        # Bindings
+        tree.bind("<<TreeviewSelect>>", on_tree_select)
+        tree.bind("<Double-1>", lambda e: do_open())
+
+        refresh_btn.config(command=do_refresh)
         open_btn.config(command=do_open)
         download_btn.config(command=do_download)
-        refresh_btn.config(command=do_refresh)
+        export_btn.config(command=do_export_csv)
 
-        # If there are results, select the first to show preview immediately
+        # If there is at least one row, select first and show preview
         if records:
-            listbox.selection_set(0)
-            load_preview(0)
+            first_iid = tree.get_children()[0]
+            tree.selection_set(first_iid)
+            tree.see(first_iid)
+            load_preview_by_index(0)
+
 
 
 def main():
