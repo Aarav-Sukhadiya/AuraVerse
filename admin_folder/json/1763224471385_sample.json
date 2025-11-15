@@ -1,0 +1,25 @@
+{
+  "user": {
+    "id": 1024,
+    "name": "Aarav Sukhadiya",
+    "email": "aarav@example.com",
+    "role": "developer"
+  },
+  "project": {
+    "name": "AuraVerse",
+    "version": "1.0.0",
+    "status": "active",
+    "features": [
+      "file_storage",
+      "search_system",
+      "json_processing",
+      "ui_navigation"
+    ]
+  },
+  "preferences": {
+    "theme": "dark",
+    "autosave": true,
+    "notifications": false
+  },
+  "timestamp": "2025-02-18T10:45:00Z"
+}

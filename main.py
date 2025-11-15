@@ -24,11 +24,31 @@ import json
 import Search_UI
 import JsonHandler
 
-# ---------------- CONFIGURATION SECTION ----------------
+# --- per-user storage: use Creating_Storage.setup_user_storage(username) ---
+# Requires Creating_Storage.py next to this file (it defines setup_user_storage)
+try:
+    from Creating_Storage import setup_user_storage
+except Exception as _e:
+    setup_user_storage = None  # will error later if missing
 
-BASE = Path.cwd()
-STORAGE_ROOT = BASE / "storage"
-DB_PATH = BASE / "file_catalog.sqlite"
+# default username (change as needed). auth_ui provides the same username.
+USERNAME = "admin"
+
+if setup_user_storage is None:
+    raise RuntimeError("Creating_Storage.py not found or setup_user_storage missing. Add Creating_Storage.py.")
+# call setup to get the exact folder and DB path (will create them if they don't exist)
+STORAGE_ROOT, DB_PATH = setup_user_storage(USERNAME)
+
+# ensure pathlib.Path types (some code expects Path)
+from pathlib import Path
+STORAGE_ROOT = Path(STORAGE_ROOT)
+DB_PATH = Path(DB_PATH)
+
+# make sure storage root exists
+STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+# ---------------- CONFIGURATION SECTION ----------------
 
 CATEGORIES = {
     "image": STORAGE_ROOT / "image",
@@ -103,8 +123,8 @@ def upgrade_db():
     except: pass
     DB_CONN.commit()
 
-def init_db():
-    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+def init_db(db_path):
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     c = conn.cursor()
     c.execute("""
     CREATE TABLE IF NOT EXISTS files (
@@ -121,9 +141,8 @@ def init_db():
     return conn
 
 
-DB_CONN = init_db()
+DB_CONN = init_db(DB_PATH)
 upgrade_db()
-
 
 def insert_record(original_path, stored_path, mime, category, sha256):
     now = datetime.utcnow().isoformat()
@@ -233,7 +252,7 @@ class AppUI:
 
     def open_search_ui(self):
         self.root.destroy()
-        Search_UI.main(back_callback=self.restart_main_ui)
+        Search_UI.main(storage_root=str(STORAGE_ROOT), db_path=str(DB_PATH), username=USERNAME)
 
     def restart_main_ui(self):
         import main
@@ -581,7 +600,7 @@ class AppUI:
 
 
 
-def main():
+def main(username = "admin"):
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
