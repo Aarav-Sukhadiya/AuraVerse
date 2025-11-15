@@ -17,7 +17,8 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import re
 
-import Search_UI   # << ADDED
+import Search_UI 
+import JsonHandler
 
 # ---------------- CONFIGURATION SECTION ----------------
 
@@ -85,6 +86,18 @@ def sha256_file(path: Path, chunk_size=65536):
 
 
 # ---------- DATABASE ----------
+def upgrade_db():
+    cur = DB_CONN.cursor()
+    try:
+        cur.execute("ALTER TABLE files ADD COLUMN json_keys TEXT;")
+    except: pass
+    try:
+        cur.execute("ALTER TABLE files ADD COLUMN json_preview TEXT;")
+    except: pass
+    try:
+        cur.execute("ALTER TABLE files ADD COLUMN json_search_text TEXT;")
+    except: pass
+    DB_CONN.commit()
 
 def init_db():
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
@@ -105,6 +118,7 @@ def init_db():
 
 
 DB_CONN = init_db()
+upgrade_db()
 
 
 def insert_record(original_path, stored_path, mime, category, sha256):
@@ -121,12 +135,20 @@ def insert_record(original_path, stored_path, mime, category, sha256):
 # ---------- FILE PROCESSING ----------
 
 def process_and_store_file(path: str, dry_run=False):
+    
     p = Path(path)
     if not p.exists() or not p.is_file():
         return {"status":"error", "reason":"not_found", "path": path}
 
     mime = guess_mime(path)
     category = mime_to_category(mime, path)
+
+    json_meta = None
+    if category == "json":
+        data = JsonHandler.process_json_file(path)
+        if data["valid"]:
+            json_meta = data["metadata"]
+
     folder = CATEGORIES.get(category, CATEGORIES["other"])
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -140,7 +162,23 @@ def process_and_store_file(path: str, dry_run=False):
     except Exception as e:
         return {"status": "error", "reason": str(e), "path": path}
 
-    rec_id = insert_record(str(path), str(dest_path), mime, category, sha)
+    now = datetime.utcnow().isoformat()
+    if json_meta:
+        cur = DB_CONN.cursor()
+        cur.execute("""
+            INSERT INTO files (original_path, stored_path, mime, category, sha256, added_at, 
+                                json_keys, json_preview, json_search_text)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            str(path), str(dest_path), mime, category, sha, now,
+            json_meta.get("json_keys", ""),
+            json_meta.get("json_preview", ""),
+            json_meta.get("json_search_text", "")
+        ))
+        DB_CONN.commit()
+        rec_id = cur.lastrowid
+    else:
+        rec_id = insert_record(str(path), str(dest_path), mime, category, sha)
 
     return {
         "status": "copied",

@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
 import os
+import JsonHandler
 
 DEFAULT_STORAGE_ROOT = "storage"
 
@@ -20,22 +21,55 @@ def create_storage_folders(storage_root=DEFAULT_STORAGE_ROOT):
         os.makedirs(p, exist_ok=True)
 
 
+
+# Replace the retrieve_data function in Search_UI.py with this code
+
 def retrieve_data(query, storage_root=DEFAULT_STORAGE_ROOT):
+    """
+    Search the storage tree for files matching `query`.
+    Supports:
+      - plain substring search in filename
+      - searching extracted text for text/json files via JsonHandler.extract_text_from_any_file
+      - simple category filter using "type:<category>" (e.g. "type:image")
+    """
     results = []
     if not query:
         return results
 
-    query = query.lower()
+    q = query.strip().lower()
+
+    # category filter support
+    cat_filter = None
+    if q.startswith("type:"):
+        cat_filter = q.split(":", 1)[1].strip()
+        # if it's just a type filter and nothing else, return all files of that type
+        q = ""
+
     for root, dirs, files in os.walk(storage_root):
+        file_type = os.path.basename(root).lower()  # folder name as category
+        if cat_filter and file_type != cat_filter:
+            continue
+
         for filename in files:
-            if query in filename.lower():
-                full_path = os.path.join(root, filename)
-                file_type = os.path.basename(root)
+            full_path = os.path.join(root, filename)
+            name_lower = filename.lower()
+
+            matches_name = (q and q in name_lower) or (not q)  # if q empty after type:, then match all in that category
+            matches_text = False
+            try:
+                # safe: extract_text_from_any_file returns "" on error
+                extracted = JsonHandler.extract_text_from_any_file(full_path) or ""
+                matches_text = (q and q in extracted.lower())
+            except Exception:
+                matches_text = False
+
+            if matches_name or matches_text:
                 results.append({
                     "type": file_type,
                     "source": filename,
                     "path": full_path
                 })
+
     return results
 
 
