@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 auth_ui.py (updated)
 
