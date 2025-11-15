@@ -1,17 +1,11 @@
-# Search_UI.py
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
-import json
 import os
-from pathlib import Path
 
-# --- Backend defaults (can be overridden by main()) ---
 DEFAULT_STORAGE_ROOT = "storage"
 
+
 def create_storage_folders(storage_root=DEFAULT_STORAGE_ROOT):
-    """
-    Ensures the root storage directory and main subfolders exist.
-    """
     folders_to_create = [
         os.path.join(storage_root, "image"),
         os.path.join(storage_root, "video"),
@@ -21,19 +15,12 @@ def create_storage_folders(storage_root=DEFAULT_STORAGE_ROOT):
         os.path.join(storage_root, "pdf"),
         os.path.join(storage_root, "text")
     ]
-    try:
-        os.makedirs(storage_root, exist_ok=True)
-        for path in folders_to_create:
-            os.makedirs(path, exist_ok=True)
-    except OSError as e:
-        print(f"Error creating storage directories: {e}")
-        raise
+    os.makedirs(storage_root, exist_ok=True)
+    for p in folders_to_create:
+        os.makedirs(p, exist_ok=True)
+
 
 def retrieve_data(query, storage_root=DEFAULT_STORAGE_ROOT):
-    """
-    Searches the `storage_root` directory for files/folders matching the query.
-    Returns a list of result dicts.
-    """
     results = []
     if not query:
         return results
@@ -44,8 +31,6 @@ def retrieve_data(query, storage_root=DEFAULT_STORAGE_ROOT):
             if query in filename.lower():
                 full_path = os.path.join(root, filename)
                 file_type = os.path.basename(root)
-                if file_type == storage_root:
-                    file_type = "other"
                 results.append({
                     "type": file_type,
                     "source": filename,
@@ -53,13 +38,11 @@ def retrieve_data(query, storage_root=DEFAULT_STORAGE_ROOT):
                 })
     return results
 
+
 def build_gui(storage_root):
-    """
-    Build the Tk GUI widgets and return the root and some key widgets.
-    """
     root = tk.Tk()
     root.title("Storage Retrieval System")
-    root.geometry("780x480")
+    root.geometry("800x520")
 
     # Status bar
     log_frame = tk.Frame(root, pady=2)
@@ -67,38 +50,33 @@ def build_gui(storage_root):
     status = tk.StringVar(value="Ready.")
     tk.Label(log_frame, textvariable=status, anchor="w").pack(fill="x")
 
-    # Search frame
+    # ---------------- SEARCH FRAME ----------------
     search_frame = tk.Frame(root, pady=10)
     search_frame.pack(fill="x", padx=10, side=tk.TOP)
-    tk.Label(search_frame, text="Search Query:", font=("Arial", 14)).pack(side=tk.LEFT, padx=(0, 10))
 
-    query_input = tk.Entry(search_frame, font=("Arial", 12), width=50)
-    query_input.pack(side=tk.LEFT, fill="x", expand=True, ipady=4)
+    tk.Label(search_frame, text="Search:", font=("Arial", 14)).pack(side=tk.LEFT, padx=(0, 10))
 
-    results_display = scrolledtext.ScrolledText(root, height=20, width=90, state=tk.DISABLED)
+    query_input = tk.Entry(search_frame, font=("Arial", 12), width=40)
+    query_input.pack(side=tk.LEFT, fill="x", expand=True)
+
+    return root, status, query_input, search_frame
+
+
+def main(storage_root=DEFAULT_STORAGE_ROOT, back_callback=None):
+
+    create_storage_folders(storage_root)
+    root, status, query_input, search_frame = build_gui(storage_root)
+
+    # ---------------- RESULT DISPLAY ----------------
+    results_display = scrolledtext.ScrolledText(root, height=22, width=90, state=tk.DISABLED)
     results_display.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
-    return root, status, query_input, results_display
-
-def main(storage_root=DEFAULT_STORAGE_ROOT):
-    """
-    Start the Search UI. Call this from other modules: Search_UI.main()
-    Optionally pass a different storage_root path.
-    """
-    # Ensure storage directories exist
-    try:
-        create_storage_folders(storage_root)
-    except Exception as e:
-        print(f"Startup error creating storage folders: {e}")
-        # Proceeding may still work but warn the user
-
-    root, status, query_input, results_display = build_gui(storage_root)
-
+    # ---------------- SEARCH FUNCTION ----------------
     def perform_search():
         query = query_input.get().strip()
         if not query:
             messagebox.showwarning("Empty Query", "Please enter a search term.")
-            status.set("Search attempted with empty query.")
+            status.set("Empty query entered.")
             return
 
         results_display.config(state=tk.NORMAL)
@@ -107,52 +85,57 @@ def main(storage_root=DEFAULT_STORAGE_ROOT):
         try:
             status.set(f"Searching for '{query}'...")
             root.update_idletasks()
-            results = retrieve_data(query, storage_root=storage_root)
+            results = retrieve_data(query, storage_root)
 
             if not results:
                 results_display.insert(tk.END, f"No results found for: '{query}'")
-                status.set(f"No results found for '{query}'.")
+                status.set("No results found.")
+                results_display.config(state=tk.DISABLED)
                 return
 
-            status.set(f"Found {len(results)} result(s) for '{query}'.")
+            status.set(f"Found {len(results)} result(s).")
             results_display.insert(tk.END, f"Found {len(results)} result(s):\n\n")
+
             for i, res in enumerate(results):
-                results_display.insert(tk.END, f"--- Result {i+1} ---\n")
-                results_display.insert(tk.END, f"Type: {res.get('type', 'N/A').capitalize()}\n")
-                results_display.insert(tk.END, f"File: {res.get('source', 'N/A')}\n")
-                results_display.insert(tk.END, f"Path: {res.get('path', 'N/A')}\n\n")
+                results_display.insert(tk.END, f"--- {i+1} ---\n")
+                results_display.insert(tk.END, f"Type: {res['type']}\n")
+                results_display.insert(tk.END, f"File: {res['source']}\n")
+                results_display.insert(tk.END, f"Path: {res['path']}\n\n")
 
         except Exception as e:
-            messagebox.showerror("Search Error", f"An error occurred during search:\n{e}")
-            status.set("Search failed with an error.")
+            messagebox.showerror("Search Error", f"Error: {e}")
+            status.set("Search failed.")
         finally:
             results_display.config(state=tk.DISABLED)
 
-    # Bindings and buttons
-    query_input.bind("<Return>", lambda event: perform_search())
-    search_btn = tk.Button(root.children['!frame2'] if '!frame2' in root.children else root, text="Search", command=perform_search, font=("Arial", 11))
-    # Fallback placement if frame not easily accessible (we already packed in build_gui)
-    try:
-        # try to find the search_frame packed earlier (safe fallback)
-        # The button was meant to be placed next to the entry; create a small frame for it:
-        # We'll place the button into the search_frame created in build_gui
-        # (search_frame is the first frame packed at top, children ordering may vary)
-        top_frames = [w for w in root.winfo_children() if isinstance(w, tk.Frame)]
-        if top_frames:
-            btn_parent = top_frames[0]
-            tk.Button(btn_parent, text="Search", command=perform_search, font=("Arial", 11)).pack(side=tk.LEFT, padx=10)
-        else:
-            # final fallback: pack button at top
-            search_btn.pack(side=tk.TOP, padx=10)
-    except Exception:
-        search_btn.pack(side=tk.TOP, padx=10)
+    query_input.bind("<Return>", lambda e: perform_search())
 
-    tk.Label(root, text="Search Results", font=("Arial", 14)).pack(anchor="w", padx=10, pady=(10,0))
+    # ---------------- BUTTONS BESIDE SEARCH BAR ----------------
+    tk.Button(
+        search_frame, text="Search", command=perform_search,
+        font=("Arial", 12), width=10
+    ).pack(side=tk.LEFT, padx=10)
 
-    # start GUI loop
-    status.set("Ready. Storage folders initialized.")
+    # BACK BUTTON RESTARTS MAIN WINDOW
+    def go_back():
+        root.destroy()
+        try:
+            import importlib
+            import main as main_mod
+            importlib.reload(main_mod)
+            main_mod.main()
+        except Exception as e:
+            print("Failed to restart main.py:", e)
+
+    tk.Button(
+        search_frame, text="Back", command=go_back,
+        font=("Arial", 12), width=10
+    ).pack(side=tk.LEFT)
+    # -----------------------------------------------------------
+
+    status.set("Ready.")
     root.mainloop()
 
+
 if __name__ == "__main__":
-    # default behavior when executed directly
     main()
