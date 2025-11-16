@@ -5,7 +5,7 @@ Group Members:
 
 🌀 AuraVerse – Multi-User File Intelligence & JSON Management System
 
-  AuraVerse is a multi-user, secure, local-first file management system built in Python.
+  this is a multi-user, secure, local-first file management system built in Python.
   It provides authentication, per-user isolated databases, intelligent file ingestion, JSON processing, and a complete search & retrieval UI powered by SQLite text search and fallback filesystem scanning.
 
   Designed for developers who need a clean, organized, user-specific file cataloging system.
@@ -13,7 +13,7 @@ Group Members:
 
 🌐 Overview
 
-  AuraVerse allows multiple users to log in securely and maintain their own isolated file-storage environments.
+  It allows multiple users to log in securely and maintain their own isolated file-storage environments.
   Each user gets:
   
   their own private folder
