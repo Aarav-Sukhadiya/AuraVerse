@@ -254,7 +254,12 @@ class AppUI:
         main.main()
 
     def select_files(self):
-        paths = filedialog.askopenfilenames(title="Select files to ingest")
+        paths = filedialog.askopenfilenames(
+        initialdir=os.path.join(os.path.expanduser("~"), "Desktop"),
+        title="Select files to import"
+        )
+
+
         if not paths:
             return
         threading.Thread(target=self._process_batch, args=(paths,), daemon=True).start()
