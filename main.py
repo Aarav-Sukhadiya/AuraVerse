@@ -32,38 +32,20 @@ except Exception as _e:
     setup_user_storage = None  # will error later if missing
 
 # default username (change as needed). auth_ui provides the same username.
-USERNAME = "admin"
+#USERNAME = "admin"
 
 if setup_user_storage is None:
     raise RuntimeError("Creating_Storage.py not found or setup_user_storage missing. Add Creating_Storage.py.")
 # call setup to get the exact folder and DB path (will create them if they don't exist)
-STORAGE_ROOT, DB_PATH = setup_user_storage(USERNAME)
+#STORAGE_ROOT, DB_PATH = setup_user_storage(USERNAME)
 
 # ensure pathlib.Path types (some code expects Path)
 from pathlib import Path
-STORAGE_ROOT = Path(STORAGE_ROOT)
-DB_PATH = Path(DB_PATH)
+#STORAGE_ROOT = Path(STORAGE_ROOT)
+#DB_PATH = Path(DB_PATH)
 
 # make sure storage root exists
-STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
-
-
-# ---------------- CONFIGURATION SECTION ----------------
-
-CATEGORIES = {
-    "image": STORAGE_ROOT / "image",
-    "video": STORAGE_ROOT / "video",
-    "json":  STORAGE_ROOT / "json",
-    "text":  STORAGE_ROOT / "text",
-    "audio": STORAGE_ROOT / "audio",
-    "pdf":   STORAGE_ROOT / "pdf",
-    "other": STORAGE_ROOT / "other",
-}
-
-for folder in CATEGORIES.values():
-    folder.mkdir(parents=True, exist_ok=True)
-
-
+#STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
 # ---------- UTILITY FUNCTIONS ----------
 
 def human_size(num_bytes: int):
@@ -141,8 +123,7 @@ def init_db(db_path):
     return conn
 
 
-DB_CONN = init_db(DB_PATH)
-upgrade_db()
+
 
 def insert_record(original_path, stored_path, mime, category, sha256):
     now = datetime.utcnow().isoformat()
@@ -722,22 +703,62 @@ class AppUI:
 
 
 def main(username = "admin"):
-    # resolve per-user storage + db
+    # Resolve per-user storage + db (creates them if missing)
     from Creating_Storage import setup_user_storage
-    storage_root, db_path = setup_user_storage(username)
-    storage_root = str(storage_root)
-    db_path = str(db_path)
 
+    # get paths (they come back as Path objects from Creating_Storage)
+    storage_root, db_path = setup_user_storage(username)
+
+    # convert to pathlib.Path (guarantee)
+    storage_root = Path(storage_root)
+    db_path = Path(db_path)
+
+    # export these as globals because many functions expect them
+    global STORAGE_ROOT, DB_PATH, DB_CONN, CATEGORIES, USERNAME
+    STORAGE_ROOT = storage_root
+    DB_PATH = db_path
+    USERNAME = username
+
+    # build category folder Path objects (use Path / operator)
+    CATEGORIES = {
+        "image":  STORAGE_ROOT / "image",
+        "video":  STORAGE_ROOT / "video",
+        "json":   STORAGE_ROOT / "json",
+        "text":   STORAGE_ROOT / "text",
+        "audio":  STORAGE_ROOT / "audio",
+        "pdf":    STORAGE_ROOT / "pdf",
+        "other":  STORAGE_ROOT / "other",
+    }
+
+    # ensure category folders exist (Creating_Storage already created them,
+    # but this is defensive and safe)
+    for folder in CATEGORIES.values():
+        folder.mkdir(parents=True, exist_ok=True)
+
+    # initialize DB_CONN using the per-user DB path
+    DB_CONN = init_db(DB_PATH)
+
+    # perform DB upgrades (if required)
+    try:
+        upgrade_db()
+    except Exception:
+        pass
+
+    # CLI args support (keeps existing behaviour)
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    # Start UI
     root = tk.Tk()
     root.title(f"AuraVerse — {username}")
-    app = AppUI(root, storage_root=storage_root, db_path=db_path)
+
+    # create AppUI and pass storage/db info (AppUI will still use globals too)
+    app = AppUI(root, storage_root=STORAGE_ROOT, db_path=DB_PATH, username=USERNAME)
 
     root.geometry("1100x700")
     root.mainloop()
+
 
 
 if __name__ == "__main__":
