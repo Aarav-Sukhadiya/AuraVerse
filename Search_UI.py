@@ -336,14 +336,21 @@ def build_gui(storage_root: str, db_path: str, username: str):
 
     # Back button (returns to main if available)
     def go_back():
-        root.destroy()
+        # close the Search UI window
         try:
-            import importlib
+            root.destroy()
+        except Exception:
+            pass
+
+        # re-open the main UI for the same username
+        try:
             import main as main_mod
-            importlib.reload(main_mod)
-            main_mod.main()
+            # call main with the same username so we don't fall back to admin
+            main_mod.main(username=username)
         except Exception as e:
-            print("Failed to restart main.py:", e)
+            # show error but don't crash
+            messagebox.showerror("Error", f"Failed to return to main UI:\n{e}")
+
 
     back_btn.config(command=go_back)
 
